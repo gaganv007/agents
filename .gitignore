@@ -1,0 +1,21 @@
+# Secrets - never commit these
+credentials.json
+token.json
+.env
+*.pem
+
+# Logs & runtime output
+*.log
+briefing.err.log
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# macOS
+.DS_Store
+
+# Local editor/agent settings
+.claude/settings.local.json

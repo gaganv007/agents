@@ -1,0 +1,270 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Command Center</title>
+<style>
+  :root{
+    --bg:#0d1117; --panel:#161b22; --panel2:#1c232d; --border:#2a3340;
+    --txt:#e6edf3; --dim:#8b949e; --accent:#39d0d8; --green:#3fb950;
+    --yellow:#d29922; --red:#f85149; --mag:#bc8cff;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Helvetica,Arial,sans-serif;
+    background:var(--bg);color:var(--txt);font-size:14px}
+  a{color:var(--accent)}
+  header{display:flex;align-items:center;gap:14px;padding:14px 22px;border-bottom:1px solid var(--border);
+    background:linear-gradient(90deg,#10161e,#0d1117);position:sticky;top:0;z-index:5}
+  header h1{font-size:17px;margin:0;letter-spacing:.5px}
+  header h1 .c{color:var(--accent)}
+  .pills{margin-left:auto;display:flex;gap:8px;flex-wrap:wrap}
+  .pill{font-size:11px;padding:3px 9px;border-radius:20px;border:1px solid var(--border);
+    background:var(--panel2);color:var(--dim);white-space:nowrap}
+  .pill.on{color:var(--green);border-color:#1f4427}
+  .pill.off{color:var(--dim)}
+  .pill.warn{color:var(--yellow);border-color:#4a3a17}
+
+  .wrap{display:grid;grid-template-columns:260px 1fr;gap:18px;padding:18px 22px;max-width:1400px;margin:0 auto}
+  .card{background:var(--panel);border:1px solid var(--border);border-radius:12px;padding:16px}
+  .card h2{font-size:12px;text-transform:uppercase;letter-spacing:1px;color:var(--dim);margin:0 0 12px}
+
+  /* gauges */
+  .gauges{grid-column:1/3;display:grid;grid-template-columns:repeat(4,1fr);gap:14px}
+  .gauge .top{display:flex;justify-content:space-between;align-items:baseline;margin-bottom:8px}
+  .gauge .lbl{font-size:12px;color:var(--dim);text-transform:uppercase;letter-spacing:.6px}
+  .gauge .val{font-size:22px;font-weight:600}
+  .bar{height:8px;border-radius:6px;background:#0a0e14;overflow:hidden}
+  .bar > i{display:block;height:100%;width:0;border-radius:6px;transition:width .5s ease,background .3s}
+  .gauge .sub{font-size:11px;color:var(--dim);margin-top:7px}
+
+  /* sidebar */
+  .side .group{margin-bottom:16px}
+  .side .gh{font-size:11px;color:var(--dim);text-transform:uppercase;letter-spacing:1px;margin:0 0 7px}
+  .agent{display:flex;align-items:center;gap:8px;width:100%;padding:9px 11px;margin-bottom:6px;
+    background:var(--panel2);border:1px solid var(--border);border-radius:9px;color:var(--txt);
+    cursor:pointer;text-align:left;font-size:13px;transition:.15s}
+  .agent:hover{border-color:var(--accent);transform:translateX(2px)}
+  .agent .em{width:18px;text-align:center}
+  .agent .ap{margin-left:auto;font-size:10px;color:var(--yellow);border:1px solid #4a3a17;
+    padding:1px 5px;border-radius:5px}
+  .searchbox{display:flex;gap:6px;margin-bottom:6px}
+  .searchbox input{flex:1;background:#0a0e14;border:1px solid var(--border);border-radius:8px;
+    color:var(--txt);padding:8px 10px;font-size:12px}
+
+  /* main */
+  .main{display:flex;flex-direction:column;gap:14px;min-width:0}
+  .tabs{display:flex;gap:6px}
+  .tab{padding:7px 14px;border-radius:8px;border:1px solid var(--border);background:var(--panel2);
+    color:var(--dim);cursor:pointer;font-size:12px}
+  .tab.active{color:var(--txt);border-color:var(--accent);background:#11212a}
+  .console{background:#080b10;border:1px solid var(--border);border-radius:12px;padding:14px;
+    font-family:"SF Mono",ui-monospace,Menlo,monospace;font-size:12.5px;line-height:1.55;
+    white-space:pre-wrap;word-break:break-word;height:460px;overflow:auto;color:#cdd6e0}
+  .console .cmd{color:var(--accent)}
+  .console .ok{color:var(--green)}
+  .console .warn{color:var(--yellow)}
+  .console .err{color:var(--red)}
+  .console .hdr{color:var(--mag);font-weight:600}
+  .running{display:inline-block;width:8px;height:8px;border-radius:50%;background:var(--green);
+    margin-right:7px;animation:pulse 1s infinite}
+  @keyframes pulse{0%,100%{opacity:1}50%{opacity:.25}}
+  .toolbar{display:flex;align-items:center;gap:10px;color:var(--dim);font-size:12px;min-height:20px}
+  .toolbar .stop{margin-left:auto;color:var(--red);cursor:pointer;border:1px solid #4a1f1f;
+    padding:3px 9px;border-radius:6px}
+  .news{display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:12px}
+  .feed h3{font-size:13px;margin:0 0 8px;color:var(--accent)}
+  .feed li{font-size:12.5px;margin:5px 0;color:#c9d3dd;list-style:none}
+  .feed ul{margin:0;padding:0}
+  .feed .dot{color:var(--yellow);margin-right:5px}
+  .hidden{display:none}
+  .muted{color:var(--dim);font-size:12px}
+  footer{padding:8px 22px 26px;color:var(--dim);font-size:11px;text-align:center}
+</style>
+</head>
+<body>
+<header>
+  <h1><span class="c">&#9670;</span> GAGAN&#39;S COMMAND CENTER</h1>
+  <div class="pills" id="pills"></div>
+</header>
+
+<div class="wrap">
+  <!-- live gauges -->
+  <div class="gauges" id="gauges">
+    <div class="card gauge" data-k="cpu"><div class="top"><span class="lbl">CPU</span><span class="val">--</span></div><div class="bar"><i></i></div><div class="sub"></div></div>
+    <div class="card gauge" data-k="mem"><div class="top"><span class="lbl">Memory</span><span class="val">--</span></div><div class="bar"><i></i></div><div class="sub"></div></div>
+    <div class="card gauge" data-k="disk"><div class="top"><span class="lbl">Disk</span><span class="val">--</span></div><div class="bar"><i></i></div><div class="sub"></div></div>
+    <div class="card gauge" data-k="bat"><div class="top"><span class="lbl">Battery</span><span class="val">--</span></div><div class="bar"><i></i></div><div class="sub"></div></div>
+  </div>
+
+  <!-- sidebar -->
+  <div class="card side">
+    <div class="group">
+      <p class="gh">Reports</p>
+      <button class="agent" onclick="run('briefing')"><span class="em">&#9728;</span>Daily Briefing</button>
+      <button class="agent" onclick="run('system')"><span class="em">&#128202;</span>System Analysis</button>
+      <button class="agent" onclick="loadNews()"><span class="em">&#128240;</span>World News</button>
+      <button class="agent" onclick="run('disk')"><span class="em">&#128190;</span>Disk Analyzer</button>
+    </div>
+    <div class="group">
+      <p class="gh">Actions (apply moves things)</p>
+      <button class="agent" onclick="run('files',true)"><span class="em">&#128193;</span>File Sorter<span class="ap">apply</span></button>
+      <button class="agent" onclick="run('screenshots',true)"><span class="em">&#128247;</span>Screenshots<span class="ap">apply</span></button>
+      <button class="agent" onclick="run('junk',true)"><span class="em">&#129529;</span>Junk Cleaner<span class="ap">apply</span></button>
+    </div>
+    <div class="group">
+      <p class="gh">Gmail</p>
+      <div class="searchbox">
+        <input id="gq" placeholder="search e.g. from:amazon" />
+        <button class="agent" style="width:auto;margin:0;padding:8px 10px" onclick="gmailSearch()">&#128269;</button>
+      </div>
+      <button class="agent" onclick="run('gmail_sort',true)"><span class="em">&#127991;</span>Sort inbox<span class="ap">apply</span></button>
+      <button class="agent" onclick="run('gmail_draft',true)"><span class="em">&#9997;</span>Draft replies<span class="ap">apply</span></button>
+    </div>
+    <div class="group">
+      <p class="gh">Automation</p>
+      <button class="agent" onclick="run('auto')"><span class="em">&#9889;</span>Run Daily Auto</button>
+    </div>
+  </div>
+
+  <!-- main -->
+  <div class="main">
+    <div class="tabs">
+      <div class="tab active" data-tab="console" onclick="tab('console')">Console</div>
+      <div class="tab" data-tab="news" onclick="tab('news')">News</div>
+      <div class="tab" data-tab="log" onclick="tab('log')">Auto-run Log</div>
+    </div>
+
+    <div id="panel-console">
+      <div class="toolbar"><span id="status" class="muted">Pick an agent on the left to run it live.</span>
+        <span class="stop hidden" id="stopBtn" onclick="stopRun()">stop</span></div>
+      <div class="console" id="console"><span class="muted">Ready.</span></div>
+    </div>
+
+    <div id="panel-news" class="hidden">
+      <div class="card"><h2>Trending World News</h2><div class="news" id="newsBox"><span class="muted">Loading…</span></div></div>
+    </div>
+
+    <div id="panel-log" class="hidden">
+      <div class="card"><h2>Daily auto-run log (briefing.log)</h2>
+        <div class="console" id="logBox" style="height:520px"><span class="muted">Loading…</span></div></div>
+    </div>
+  </div>
+</div>
+
+<footer>Local only · 127.0.0.1 · nothing leaves your machine · refresh stats every 3s</footer>
+
+<script>
+const $ = s => document.querySelector(s);
+let es = null;
+
+/* ---------- tabs ---------- */
+function tab(name){
+  document.querySelectorAll('.tab').forEach(t=>t.classList.toggle('active',t.dataset.tab===name));
+  ['console','news','log'].forEach(p=>$('#panel-'+p).classList.toggle('hidden',p!==name));
+  if(name==='news') loadNews();
+  if(name==='log') loadLog();
+}
+
+/* ---------- live stats ---------- */
+function color(pct){ return pct<70?'var(--green)':pct<90?'var(--yellow)':'var(--red)'; }
+function setGauge(k,pct,val,sub){
+  const g=document.querySelector(`.gauge[data-k="${k}"]`); if(!g)return;
+  g.querySelector('.val').textContent=val;
+  const bar=g.querySelector('.bar > i'); bar.style.width=Math.min(pct,100)+'%'; bar.style.background=color(pct);
+  g.querySelector('.sub').textContent=sub||'';
+}
+async function stats(){
+  try{
+    const d=await (await fetch('/api/stats')).json();
+    setGauge('cpu',d.cpu,d.cpu.toFixed(0)+'%',`${d.cores} cores · load ${d.load[0]}`);
+    setGauge('mem',d.mem.pct,d.mem.pct.toFixed(0)+'%',`${d.mem.used} / ${d.mem.total}`);
+    setGauge('disk',d.disk.pct,d.disk.pct.toFixed(0)+'%',`${d.disk.free} free of ${d.disk.total}`);
+    if(d.battery){setGauge('bat',d.battery.pct,d.battery.pct+'%',(d.battery.plugged?'charging':'on battery'));}
+    else setGauge('bat',0,'N/A','no battery');
+  }catch(e){}
+}
+async function schedule(){
+  try{
+    const s=await (await fetch('/api/schedule')).json();
+    const p=$('#pills'); p.innerHTML='';
+    const add=(txt,cls)=>{const e=document.createElement('span');e.className='pill '+cls;e.textContent=txt;p.appendChild(e);};
+    add(s.loaded?('● Daily auto: '+s.time):'○ Daily auto: off', s.loaded?'on':'off');
+    add(s.gmail_authed?'● Gmail connected':(s.gmail_ready?'◐ Gmail: needs sign-in':'○ Gmail: setup needed'),
+        s.gmail_authed?'on':(s.gmail_ready?'warn':'off'));
+    add(s.llm_drafts?'● Smart drafts (Claude)':'○ Template drafts', s.llm_drafts?'on':'off');
+  }catch(e){}
+}
+
+/* ---------- run agent (SSE) ---------- */
+function line(txt){
+  const c=$('#console'); const div=document.createElement('div');
+  let cls='';
+  if(txt.startsWith('$ ')) cls='cmd';
+  else if(/Done\.|complete|OK|healthy|✓/.test(txt)) cls='ok';
+  else if(/Preview only|Attention|skipped|Cancelled|need|Missing/i.test(txt)) cls='warn';
+  else if(/error|failed|not permitted|Traceback/i.test(txt)) cls='err';
+  else if(/={10,}|\[[A-Z]+\]/.test(txt)) cls='hdr';
+  div.className=cls; div.textContent=txt; c.appendChild(div); c.scrollTop=c.scrollHeight;
+}
+function stopRun(){ if(es){es.close();es=null;} $('#stopBtn').classList.add('hidden');
+  $('#status').innerHTML='<span class="muted">stopped.</span>'; }
+
+function run(key, supportsApply){
+  tab('console');
+  let url='/api/run/'+key;
+  if(supportsApply){
+    if(!confirm("This will MODIFY files/your inbox (apply mode). Continue?")) {
+      // run preview instead
+    } else { url+='?apply=1'; }
+  }
+  startStream(url, key);
+}
+function gmailSearch(){
+  const q=$('#gq').value.trim(); tab('console');
+  startStream('/api/run/gmail_search?q='+encodeURIComponent(q||'is:unread'),'gmail_search');
+}
+function startStream(url,key){
+  if(es){es.close();}
+  $('#console').innerHTML='';
+  $('#status').innerHTML='<span class="running"></span>running <b>'+key+'</b>…';
+  $('#stopBtn').classList.remove('hidden');
+  es=new EventSource(url);
+  es.onmessage=e=>line(e.data);
+  es.addEventListener('done',e=>{
+    es.close();es=null; $('#stopBtn').classList.add('hidden');
+    const code=e.data; line('');
+    $('#status').innerHTML = code==='0'
+      ? '<span style="color:var(--green)">✓ finished</span>'
+      : '<span style="color:var(--red)">exited with code '+code+'</span>';
+  });
+  es.onerror=()=>{ if(es){es.close();es=null;} $('#stopBtn').classList.add('hidden');
+    $('#status').innerHTML='<span class="muted">stream ended.</span>'; };
+}
+
+/* ---------- news ---------- */
+async function loadNews(){
+  const box=$('#newsBox'); box.innerHTML='<span class="muted">Loading…</span>';
+  try{
+    const feeds=await (await fetch('/api/news')).json(); box.innerHTML='';
+    feeds.forEach(f=>{
+      const d=document.createElement('div'); d.className='feed card'; d.style.background='var(--panel2)';
+      let html='<h3>'+f.source+'</h3>';
+      if(f.error){html+='<div class="muted">unavailable</div>';}
+      else{html+='<ul>'+f.headlines.map(h=>'<li><span class="dot">▸</span>'+escapeHtml(h)+'</li>').join('')+'</ul>';}
+      d.innerHTML=html; box.appendChild(d);
+    });
+  }catch(e){ box.innerHTML='<span class="muted">Could not load news.</span>'; }
+}
+async function loadLog(){
+  const box=$('#logBox'); box.textContent='Loading…';
+  try{ box.textContent=await (await fetch('/api/log')).text(); box.scrollTop=box.scrollHeight; }
+  catch(e){ box.textContent='Could not load log.'; }
+}
+function escapeHtml(s){return s.replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));}
+
+/* ---------- boot ---------- */
+stats(); schedule(); setInterval(stats,3000); setInterval(schedule,15000);
+</script>
+</body>
+</html>

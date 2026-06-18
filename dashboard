@@ -1,0 +1,8 @@
+#!/bin/bash
+# Launch the Command Center web dashboard.
+cd "$(dirname "$0")" || exit 1
+PY="/opt/anaconda3/bin/python3"
+[ -x "$PY" ] || PY="$(command -v python3)"
+echo "Opening http://127.0.0.1:8765 ..."
+( sleep 1.5 && open http://127.0.0.1:8765 ) &
+exec "$PY" server.py

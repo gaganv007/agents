@@ -1,0 +1,7 @@
+# Core (System Analysis)
+psutil
+
+# Gmail Sorter only (skip if you don't use Gmail)
+google-api-python-client
+google-auth-httplib2
+google-auth-oauthlib
