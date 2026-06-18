@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
-"""Daily Auto - the unattended routine run by launchd every morning.
+"""Auto routine - runs every 30 minutes via launchd.
 
-Runs every safe agent automatically. Junk/Cache Cleaner is intentionally NOT
-here: it deletes data and stays manual. Gmail drafts are created but never sent.
-Each step is isolated so one failure never stops the rest.
+Keeps things tidy and triages new Gmail with AI. It only notifies you when it
+actually did something, so a quiet inbox stays quiet. The Junk/Cache Cleaner is
+deliberately NOT here (it deletes data) - run it by hand with ./cc junk.
 """
 import os
 import sys
@@ -11,41 +11,51 @@ import datetime
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from common import C, header  # noqa: E402
-import system_analysis
-import world_news
 import file_sorter
 import screenshot_organizer
 import gmail_sorter
 from daily_briefing import notify
 
 
-def step(label, fn):
+def step(label, fn, default=None):
     try:
-        fn()
+        return fn()
     except Exception as e:
         header(label, "[SKIP]")
         print(f"  {C.GRY}skipped: {e}{C.R}")
+        return default
 
 
 def run():
     now = datetime.datetime.now()
-    print(f"\n{C.B}{C.MAG}  DAILY AUTO RUN{C.R}  "
-          f"{C.GRY}{now.strftime('%A, %B %d, %Y - %I:%M %p')}{C.R}")
+    print(f"\n{C.B}{C.MAG}  AUTO RUN{C.R}  "
+          f"{C.GRY}{now.strftime('%a %Y-%m-%d %I:%M %p')}{C.R}")
 
-    # Read-only reports
-    step("System Analysis", lambda: system_analysis.run(top=5))
-    step("World News", lambda: world_news.run())
+    files = step("File Sorter", lambda: file_sorter.run(apply=True), 0) or 0
+    shots = step("Screenshot Organizer", lambda: screenshot_organizer.run(apply=True), 0) or 0
+    gmail = step("Gmail AI triage",
+                 lambda: gmail_sorter.triage(apply=True, assume_yes=True), {}) or {}
 
-    # Auto-apply (file moves are reversible; you asked to automate these)
-    step("File Sorter", lambda: file_sorter.run(apply=True))
-    step("Screenshot Organizer", lambda: screenshot_organizer.run(apply=True))
+    sorted_n = gmail.get("sorted", 0)
+    spam_n = gmail.get("spam", 0)
+    drafts = gmail.get("drafts", 0)
 
-    # Gmail: sort labels/archive, then create review-ready drafts (never sent)
-    step("Gmail Sort", lambda: gmail_sorter.sort(apply=True, assume_yes=True))
-    step("Gmail Draft", lambda: gmail_sorter.draft(apply=True, assume_yes=True))
+    bits = []
+    if files:
+        bits.append(f"{files} files sorted")
+    if shots:
+        bits.append(f"{shots} screenshots filed")
+    if sorted_n or spam_n:
+        bits.append(f"{sorted_n + spam_n} emails sorted")
+    if drafts:
+        bits.append(f"{drafts} reply drafts ready")
 
-    print(f"\n{C.GRN}  Daily auto run complete.{C.R}\n")
-    notify("Command Center", "Daily run done: files sorted, inbox tidied, drafts ready.")
+    print(f"\n{C.GRN}  Auto run complete.{C.R} "
+          f"{C.GRY}{', '.join(bits) if bits else 'nothing to do'}{C.R}\n")
+
+    # Only ping you when something happened.
+    if bits:
+        notify("Command Center", "; ".join(bits))
 
 
 if __name__ == "__main__":

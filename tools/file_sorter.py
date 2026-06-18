@@ -47,13 +47,13 @@ def run(target=None, apply=False):
 
     if not os.path.isdir(target):
         print(f"{C.RED}Folder not found: {target}{C.R}")
-        return
+        return 0
 
     moves = plan(target, cfg)
     total = sum(len(v) for v in moves.values())
     if total == 0:
         print(f"{C.GRN}Nothing to sort - folder is already tidy.{C.R}")
-        return
+        return 0
 
     print(f"Found {C.B}{total}{C.R} files to organize into "
           f"{C.B}{len(moves)}{C.R} categories:\n")
@@ -68,7 +68,7 @@ def run(target=None, apply=False):
     if not apply:
         print(f"\n{C.YEL}This was a preview. Run with --apply (or choose Apply "
               f"in the menu) to move the files.{C.R}")
-        return
+        return 0
 
     moved = 0
     for cat, names in moves.items():
@@ -88,6 +88,7 @@ def run(target=None, apply=False):
             except OSError as e:
                 print(f"{C.RED}  could not move {n}: {e}{C.R}")
     print(f"\n{C.GRN}Done. Moved {moved} files into category folders.{C.R}")
+    return moved
 
 
 if __name__ == "__main__":

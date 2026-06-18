@@ -1,33 +1,40 @@
 #!/usr/bin/env python3
-"""Gmail Agent - search, sort (label/archive), and draft replies.
+"""Gmail AI Assistant - triage new mail and draft replies with Claude.
+
+What it does on each run (every 30 min via the scheduler):
+  - looks only at NEW unread inbox mail (your existing backlog is ignored)
+  - asks Claude to classify each email and decide if it expects a reply
+  - moves it: spam/ads -> Spam, orders -> Orders, receipts/newsletters/etc ->
+    their own labels (all configurable in config.json)
+  - if a real person / recruiter is expecting a reply, creates a review-ready
+    DRAFT (never sent) written by Claude
 
 Modes:
-  sort    : apply config rules -> labels + optional archive
-  search  : run a Gmail search query and list matches
-  draft   : create review-ready reply DRAFTS for emails that need a response
-            (drafts are never sent; you review and send them yourself)
+  triage  : the above (default; what the scheduler runs)
+  search  : run any Gmail query and list matches
+  reset   : mark "now" as the starting point (ignore everything before it)
 
-One-time setup: see README "Gmail setup". Needs credentials.json in this folder.
-
-Smart drafts: if the ANTHROPIC_API_KEY environment variable is set, drafts are
-written by Claude. Otherwise a polite placeholder template is used. Either way
-nothing is ever sent automatically.
+Setup: needs credentials.json (see README) and your Anthropic key in .env:
+  echo 'ANTHROPIC_API_KEY=sk-ant-...' > ~/Desktop/agents/.env
 """
 import os
 import sys
 import json
+import time
 import base64
 import argparse
 import urllib.request
 from email.mime.text import MIMEText
-from collections import defaultdict
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from common import C, header, load_config, ROOT, confirm  # noqa: E402
+from common import C, header, load_config, ROOT, get_secret  # noqa: E402
 
 SCOPES = ["https://www.googleapis.com/auth/gmail.modify"]
 CRED_PATH = os.path.join(ROOT, "credentials.json")
 TOKEN_PATH = os.path.join(ROOT, "token.json")
+OWNER = "Gagan"
+CATEGORIES = ["spam", "advertising", "order", "receipt", "newsletter",
+              "social", "notification", "job", "personal", "other"]
 
 
 # ---------------------------------------------------------------- auth / libs
@@ -63,8 +70,7 @@ def get_service():
     return build("gmail", "v1", credentials=creds)
 
 
-def _preflight():
-    """Returns a service or None (printing a friendly reason)."""
+def _preflight(need_key=True):
     if not _have_libs():
         print(f"{C.RED}Google libraries not installed.{C.R}")
         print("  pip install google-api-python-client google-auth-httplib2 "
@@ -72,7 +78,13 @@ def _preflight():
         return None
     if not os.path.exists(CRED_PATH):
         print(f"{C.RED}Missing credentials.json{C.R} (expected at {CRED_PATH})")
-        print(f"{C.GRY}See README 'Gmail setup' for the 5-minute steps.{C.R}")
+        print(f"{C.GRY}See README 'Gmail setup'.{C.R}")
+        return None
+    if need_key and not get_secret("ANTHROPIC_API_KEY"):
+        print(f"{C.RED}No ANTHROPIC_API_KEY.{C.R} Triage uses Claude to classify "
+              f"& draft.")
+        print(f"{C.GRY}Add it:  echo 'ANTHROPIC_API_KEY=sk-ant-...' > "
+              f"{os.path.join(ROOT, '.env')}{C.R}")
         return None
     try:
         return get_service()
@@ -82,16 +94,7 @@ def _preflight():
 
 
 # ---------------------------------------------------------------- helpers
-def headers_of(service, msg_id, names):
-    meta = service.users().messages().get(
-        userId="me", id=msg_id, format="metadata", metadataHeaders=names
-    ).execute()
-    h = {x["name"]: x["value"] for x in meta["payload"].get("headers", [])}
-    return h, meta
-
-
 def body_text(payload):
-    """Best-effort plain-text body from a Gmail message payload."""
     def walk(p):
         if p.get("mimeType") == "text/plain" and p.get("body", {}).get("data"):
             return base64.urlsafe_b64decode(p["body"]["data"]).decode("utf-8", "replace")
@@ -103,86 +106,213 @@ def body_text(payload):
     return walk(payload)
 
 
-# ---------------------------------------------------------------- SORT
-def _match(rule, frm, subj):
-    if "from" in rule and rule["from"].lower() in frm.lower():
-        return True
-    if "subject" in rule and rule["subject"].lower() in subj.lower():
-        return True
-    return False
+def _state_path(cfg):
+    return os.path.join(ROOT, cfg.get("triage", {}).get("state_file", "gmail_state.json"))
 
 
-def sort(apply=False, assume_yes=False):
-    header("Gmail - Sort inbox", "[MAIL]")
-    service = _preflight()
+def load_state(cfg):
+    p = _state_path(cfg)
+    if os.path.exists(p):
+        try:
+            return json.load(open(p))
+        except Exception:
+            pass
+    return {"since_ms": None, "processed": []}
+
+
+def save_state(cfg, state):
+    json.dump(state, open(_state_path(cfg), "w"), indent=2)
+
+
+# ---------------------------------------------------------------- Claude
+def classify(sender, subject, body, sig, model):
+    key = get_secret("ANTHROPIC_API_KEY")
+    prompt = f"""You are {OWNER}'s personal email assistant. Read the email and \
+reply with ONLY a JSON object (no markdown fences, no commentary).
+
+Shape:
+{{"category": one of {CATEGORIES},
+ "needs_reply": true or false,
+ "draft": a reply written as {OWNER}, or null}}
+
+Guidance:
+- category: single best fit. advertising = marketing/promotions/sales. spam = \
+junk/phishing. order = purchase/shipping/delivery. receipt = payment/invoice. \
+job = recruiter/hiring/interview/application. personal = a real human writing \
+to {OWNER}. notification = automated app/service alert. social = social network.
+- needs_reply: TRUE only if a human genuinely expects a personal reply from \
+{OWNER} (recruiter/hiring email, or a person asking something). FALSE for \
+newsletters, ads, promotions, receipts, orders, and automated/no-reply mail.
+- draft: if needs_reply is true, write a concise, warm, professional reply as \
+{OWNER}, ending EXACTLY with this signature:
+{sig}
+Otherwise draft must be null.
+
+Email:
+From: {sender}
+Subject: {subject}
+
+{body[:4000]}"""
+    payload = {"model": model, "max_tokens": 800,
+               "messages": [{"role": "user", "content": prompt}]}
+    req = urllib.request.Request(
+        "https://api.anthropic.com/v1/messages",
+        data=json.dumps(payload).encode(),
+        headers={"x-api-key": key, "anthropic-version": "2023-06-01",
+                 "content-type": "application/json"})
+    with urllib.request.urlopen(req, timeout=60) as r:
+        data = json.loads(r.read())
+    text = "".join(b.get("text", "") for b in data.get("content", [])).strip()
+    # tolerate stray prose around the JSON
+    s, e = text.find("{"), text.rfind("}")
+    obj = json.loads(text[s:e + 1]) if s >= 0 else {}
+    cat = obj.get("category", "other")
+    if cat not in CATEGORIES:
+        cat = "other"
+    return cat, bool(obj.get("needs_reply")), obj.get("draft")
+
+
+# ---------------------------------------------------------------- TRIAGE
+def _ensure_label(service, name, cache):
+    if name not in cache:
+        lb = service.users().labels().create(userId="me", body={"name": name}).execute()
+        cache[name] = lb["id"]
+    return cache[name]
+
+
+def triage(apply=False, assume_yes=False, since_hours=None):
+    header("Gmail - AI triage", "[MAIL]")
+    service = _preflight(need_key=True)
     if not service:
-        return
+        return {}
     cfg = load_config()["gmail_sorter"]
-    rules = cfg["rules"]
+    tcfg = cfg.get("triage", {})
+    catmap = tcfg.get("categories", {})
+    sig = cfg.get("signature", "Best,\nGagan")
+    model = cfg.get("model", "claude-sonnet-4-6")
+    now_ms = int(time.time() * 1000)
 
-    label_cache = {lb["name"]: lb["id"]
-                   for lb in service.users().labels().list(userId="me")
-                   .execute().get("labels", [])}
+    state = load_state(cfg)
+    if since_hours is not None:
+        window = now_ms - int(since_hours * 3600 * 1000)
+        persist = False
+    elif state.get("since_ms") is None:
+        # first ever run: mark "now" and ignore the whole existing backlog
+        state["since_ms"] = now_ms
+        save_state(cfg, state)
+        print(f"  {C.GRN}Starting point set to now. Existing emails are ignored; "
+              f"new mail will be handled from here.{C.R}")
+        return {"started": True}
+    else:
+        window = state["since_ms"]
+        persist = True
+    processed = set(state.get("processed", []))
+
+    labels = {lb["name"]: lb["id"] for lb in
+              service.users().labels().list(userId="me").execute().get("labels", [])}
+    drafted_threads = set()
+    for d in service.users().drafts().list(userId="me", maxResults=100).execute().get("drafts", []):
+        tid = d.get("message", {}).get("threadId")
+        if tid:
+            drafted_threads.add(tid)
 
     msgs = service.users().messages().list(
-        userId="me", labelIds=["INBOX"], maxResults=cfg.get("max_messages", 100)
-    ).execute().get("messages", [])
-    print(f"  Scanning {C.B}{len(msgs)}{C.R} inbox messages "
-          f"against {len(rules)} rules...\n")
+        userId="me", labelIds=["INBOX", "UNREAD"],
+        maxResults=cfg.get("max_messages", 50)).execute().get("messages", [])
 
-    planned = defaultdict(list)
+    summary = {"processed": 0, "spam": 0, "sorted": 0, "drafts": 0, "kept": 0}
+    actions = []
     for m in msgs:
-        h, _ = headers_of(service, m["id"], ["From", "Subject"])
-        frm, subj = h.get("From", ""), h.get("Subject", "(no subject)")
-        for rule in rules:
-            if _match(rule, frm, subj):
-                planned[(rule["label"], rule.get("archive", False))].append((m["id"], subj))
-                break
+        if m["id"] in processed:
+            continue
+        full = service.users().messages().get(userId="me", id=m["id"], format="full").execute()
+        if int(full.get("internalDate", 0)) < window:
+            continue  # older than our starting point -> ignore
+        h = {x["name"]: x["value"] for x in full["payload"].get("headers", [])}
+        sender = h.get("From", "")
+        subject = h.get("Subject", "(no subject)")
+        try:
+            cat, needs_reply, draft = classify(sender, subject, body_text(full["payload"]), sig, model)
+        except Exception as e:
+            print(f"  {C.RED}classify failed for '{subject[:40]}': {e}{C.R}")
+            continue
 
-    total = sum(len(v) for v in planned.values())
-    if total == 0:
-        print(f"{C.GRN}No inbox messages matched your rules.{C.R}")
-        return
-    for (label, arch), items in sorted(planned.items()):
-        print(f"  {C.CYN}{label}{C.R} {C.GRY}({'label+archive' if arch else 'label'}){C.R}"
-              f"  {len(items)} messages")
-        for _id, subj in items[:3]:
-            print(f"      {C.GRY}- {subj[:70]}{C.R}")
-        if len(items) > 3:
-            print(f"      {C.GRY}... and {len(items) - 3} more{C.R}")
+        rule = catmap.get(cat, {"action": "none"})
+        act = rule.get("action", "none")
+        add, remove, dest = [], [], "inbox"
+        if act == "spam":
+            add, remove, dest = ["SPAM"], ["INBOX"], "Spam"
+        elif act == "label":
+            add = [_ensure_label(service, rule["label"], labels)]
+            dest = rule["label"]
+            if rule.get("archive"):
+                remove = ["INBOX"]
 
-    if not apply:
-        print(f"\n{C.YEL}Preview only. Apply to label/archive {total} messages.{C.R}")
-        return
-    if not assume_yes and not confirm(f"\nApply changes to {total} messages?"):
-        print(f"{C.GRY}Cancelled.{C.R}")
-        return
+        will_draft = needs_reply and draft and full["threadId"] not in drafted_threads
+        actions.append((subject[:48], sender[:30], cat, dest, will_draft))
 
-    def ensure(name):
-        if name not in label_cache:
-            lb = service.users().labels().create(
-                userId="me", body={"name": name}).execute()
-            label_cache[name] = lb["id"]
-        return label_cache[name]
-
-    done = 0
-    for (label, arch), items in planned.items():
-        add, remove = [ensure(label)], (["INBOX"] if arch else [])
-        for _id, _ in items:
+        if apply:
             try:
-                service.users().messages().modify(
-                    userId="me", id=_id,
-                    body={"addLabelIds": add, "removeLabelIds": remove}).execute()
-                done += 1
+                if add or remove:
+                    service.users().messages().modify(
+                        userId="me", id=m["id"],
+                        body={"addLabelIds": add, "removeLabelIds": remove}).execute()
+                if will_draft:
+                    mime = MIMEText(draft)
+                    mime["To"] = sender
+                    mime["Subject"] = subject if subject.lower().startswith("re:") else f"Re: {subject}"
+                    msgid = h.get("Message-ID") or h.get("Message-Id", "")
+                    if msgid:
+                        mime["In-Reply-To"] = msgid
+                        mime["References"] = msgid
+                    raw = base64.urlsafe_b64encode(mime.as_bytes()).decode()
+                    service.users().drafts().create(
+                        userId="me",
+                        body={"message": {"raw": raw, "threadId": full["threadId"]}}).execute()
+                    drafted_threads.add(full["threadId"])
             except Exception as e:
-                print(f"{C.RED}  failed on a message: {e}{C.R}")
-    print(f"\n{C.GRN}Done. Updated {done} messages.{C.R}")
+                print(f"  {C.RED}action failed for '{subject[:40]}': {e}{C.R}")
+                continue
+
+        processed.add(m["id"])
+        summary["processed"] += 1
+        if act == "spam":
+            summary["spam"] += 1
+        elif act == "label":
+            summary["sorted"] += 1
+        else:
+            summary["kept"] += 1
+        if will_draft:
+            summary["drafts"] += 1
+
+    # report
+    if not actions:
+        print(f"  {C.GRN}No new mail to handle.{C.R}")
+    else:
+        verb = "Did" if apply else "Would do"
+        print(f"  {verb} the following for {len(actions)} new emails:\n")
+        for subj, frm, cat, dest, drew in actions:
+            tag = f"{C.MAG}+ draft reply{C.R}" if drew else ""
+            arrow = "stays in inbox" if dest == "inbox" else f"-> {dest}"
+            print(f"      {C.GRY}{cat:<12}{C.R} {arrow:<22} {subj}  {tag}")
+        print(f"\n  {C.B}{summary['sorted']}{C.R} sorted, "
+              f"{C.B}{summary['spam']}{C.R} to spam, "
+              f"{C.B}{summary['drafts']}{C.R} drafts, "
+              f"{C.B}{summary['kept']}{C.R} kept in inbox.")
+
+    if apply and persist:
+        state["since_ms"] = now_ms
+        state["processed"] = list(processed)[-300:]
+        save_state(cfg, state)
+    if not apply:
+        print(f"\n{C.YEL}Preview only - nothing changed. Run with --apply.{C.R}")
+    return summary
 
 
 # ---------------------------------------------------------------- SEARCH
 def search(query, limit=20):
     header(f"Gmail - Search: {query!r}", "[MAIL]")
-    service = _preflight()
+    service = _preflight(need_key=False)
     if not service:
         return
     msgs = service.users().messages().list(
@@ -192,146 +322,43 @@ def search(query, limit=20):
         return
     print(f"  {C.B}{len(msgs)}{C.R} matches:\n")
     for m in msgs:
-        h, meta = headers_of(service, m["id"], ["From", "Subject", "Date"])
-        frm = h.get("From", "")[:38]
-        subj = h.get("Subject", "(no subject)")[:60]
-        snippet = meta.get("snippet", "")[:80]
-        print(f"  {C.B}{subj}{C.R}")
-        print(f"    {C.MAG}{frm}{C.R}  {C.GRY}{h.get('Date','')[:25]}{C.R}")
-        print(f"    {C.GRY}{snippet}{C.R}\n")
-
-
-# ---------------------------------------------------------------- DRAFT
-def _llm_reply(sender, subject, body, dcfg):
-    key = os.environ.get("ANTHROPIC_API_KEY")
-    sig = dcfg.get("signature", "Best,\nGagan")
-    if not key:
-        return (f"Hi,\n\nThanks for your email regarding \"{subject}\". "
-                f"[Draft placeholder - set ANTHROPIC_API_KEY for AI-written "
-                f"replies, or edit this before sending.]\n\n{sig}")
-    prompt = (
-        "You are drafting a reply on behalf of Gagan. Write a concise, "
-        "professional, friendly reply to the email below. Output ONLY the reply "
-        "body text (no subject line, no quoted original). End with this "
-        f"signature exactly:\n{sig}\n\n"
-        f"From: {sender}\nSubject: {subject}\n\nEmail:\n{body[:4000]}"
-    )
-    payload = {
-        "model": dcfg.get("model", "claude-sonnet-4-6"),
-        "max_tokens": dcfg.get("max_tokens", 600),
-        "messages": [{"role": "user", "content": prompt}],
-    }
-    req = urllib.request.Request(
-        "https://api.anthropic.com/v1/messages",
-        data=json.dumps(payload).encode(),
-        headers={"x-api-key": key, "anthropic-version": "2023-06-01",
-                 "content-type": "application/json"},
-    )
-    try:
-        with urllib.request.urlopen(req, timeout=60) as r:
-            data = json.loads(r.read())
-        return "".join(b.get("text", "") for b in data.get("content", [])).strip()
-    except Exception as e:
-        return (f"Hi,\n\nThanks for your email about \"{subject}\".\n\n{sig}\n"
-                f"\n[AI draft failed: {e} - please write manually.]")
-
-
-def draft(apply=False, assume_yes=False):
-    header("Gmail - Draft replies", "[MAIL]")
-    service = _preflight()
-    if not service:
-        return
-    dcfg = load_config()["gmail_sorter"].get("draft", {})
-    query = dcfg.get("query", "in:inbox is:unread -from:noreply newer_than:7d")
-    max_drafts = dcfg.get("max_drafts", 10)
-
-    # threads that already have a draft -> skip to avoid duplicates
-    drafted_threads = set()
-    for d in service.users().drafts().list(
-            userId="me", maxResults=100).execute().get("drafts", []):
-        tid = d.get("message", {}).get("threadId")
-        if tid:
-            drafted_threads.add(tid)
-
-    msgs = service.users().messages().list(
-        userId="me", q=query, maxResults=max_drafts * 3).execute().get("messages", [])
-
-    candidates, seen = [], set()
-    for m in msgs:
-        if m["threadId"] in drafted_threads or m["threadId"] in seen:
-            continue
-        seen.add(m["threadId"])
-        candidates.append(m)
-        if len(candidates) >= max_drafts:
-            break
-
-    if not candidates:
-        print(f"{C.GRN}No emails need a draft right now "
-              f"(query: {query}).{C.R}")
-        return
-
-    print(f"  {C.B}{len(candidates)}{C.R} emails would get a review-ready draft:\n")
-    full = []
-    for m in candidates:
         meta = service.users().messages().get(
-            userId="me", id=m["id"], format="full").execute()
+            userId="me", id=m["id"], format="metadata",
+            metadataHeaders=["From", "Subject", "Date"]).execute()
         h = {x["name"]: x["value"] for x in meta["payload"].get("headers", [])}
-        full.append((m, meta, h))
-        print(f"      {C.GRY}- {h.get('Subject','(no subject)')[:60]}  "
-              f"<- {h.get('From','')[:35]}{C.R}")
+        print(f"  {C.B}{h.get('Subject','(no subject)')[:60]}{C.R}")
+        print(f"    {C.MAG}{h.get('From','')[:38]}{C.R}  {C.GRY}{h.get('Date','')[:25]}{C.R}")
+        print(f"    {C.GRY}{meta.get('snippet','')[:80]}{C.R}\n")
 
-    if not apply:
-        engine = "Claude" if os.environ.get("ANTHROPIC_API_KEY") else "template"
-        print(f"\n{C.YEL}Preview only. Apply to create {len(candidates)} drafts "
-              f"({engine}-written). Drafts are NEVER sent.{C.R}")
-        return
-    if not assume_yes and not confirm(f"\nCreate {len(candidates)} reply drafts?"):
-        print(f"{C.GRY}Cancelled.{C.R}")
-        return
 
-    made = 0
-    for m, meta, h in full:
-        sender = h.get("From", "")
-        subject = h.get("Subject", "(no subject)")
-        msg_id_hdr = h.get("Message-ID") or h.get("Message-Id", "")
-        reply = _llm_reply(sender, subject, body_text(meta["payload"]), dcfg)
-
-        mime = MIMEText(reply)
-        mime["To"] = sender
-        mime["Subject"] = subject if subject.lower().startswith("re:") else f"Re: {subject}"
-        if msg_id_hdr:
-            mime["In-Reply-To"] = msg_id_hdr
-            mime["References"] = msg_id_hdr
-        raw = base64.urlsafe_b64encode(mime.as_bytes()).decode()
-        try:
-            service.users().drafts().create(
-                userId="me",
-                body={"message": {"raw": raw, "threadId": m["threadId"]}}).execute()
-            made += 1
-        except Exception as e:
-            print(f"{C.RED}  draft failed for '{subject[:30]}': {e}{C.R}")
-    print(f"\n{C.GRN}Done. Created {made} drafts in your Drafts folder "
-          f"(review and send when ready).{C.R}")
+def reset():
+    cfg = load_config()["gmail_sorter"]
+    state = load_state(cfg)
+    state["since_ms"] = int(time.time() * 1000)
+    state["processed"] = []
+    save_state(cfg, state)
+    print(f"{C.GRN}Starting point reset to now. Earlier emails will be ignored.{C.R}")
 
 
 # ---------------------------------------------------------------- entry points
 def run(apply=False, assume_yes=False):
-    """Default action used by the scheduler = sort inbox."""
-    sort(apply=apply, assume_yes=assume_yes)
+    """Default action used by the scheduler = AI triage."""
+    return triage(apply=apply, assume_yes=assume_yes)
 
 
 def interactive():
-    """Submenu used by the Command Center."""
-    print(f"\n  {C.B}Gmail:{C.R}  {C.GRN}1{C.R} Sort inbox   "
-          f"{C.GRN}2{C.R} Search   {C.GRN}3{C.R} Draft replies")
+    print(f"\n  {C.B}Gmail:{C.R}  {C.GRN}1{C.R} Triage new mail (AI)   "
+          f"{C.GRN}2{C.R} Search   {C.GRN}3{C.R} Test on last 24h   "
+          f"{C.GRN}4{C.R} Reset start point")
     try:
         choice = input(f"  {C.CYN}> {C.R}").strip()
     except (EOFError, KeyboardInterrupt):
         return
     if choice == "1":
-        sort(apply=False)
-        if confirm("\nApply these label/archive changes now?"):
-            sort(apply=True, assume_yes=True)
+        triage(apply=False)
+        from common import confirm
+        if confirm("\nApply these actions (sort + create drafts)?"):
+            triage(apply=True, assume_yes=True)
     elif choice == "2":
         try:
             q = input(f"  {C.CYN}Gmail search query: {C.R}").strip()
@@ -340,24 +367,27 @@ def interactive():
         if q:
             search(q)
     elif choice == "3":
-        draft(apply=False)
-        if confirm("\nCreate these drafts now?"):
-            draft(apply=True, assume_yes=True)
-    else:
-        print(f"  {C.GRY}Nothing selected.{C.R}")
+        triage(apply=False, since_hours=24)
+        from common import confirm
+        if confirm("\nApply to these last-24h emails?"):
+            triage(apply=True, assume_yes=True, since_hours=24)
+    elif choice == "4":
+        reset()
 
 
 if __name__ == "__main__":
-    p = argparse.ArgumentParser(description="Gmail search / sort / draft.")
-    p.add_argument("mode", nargs="?", default="sort",
-                   choices=["sort", "search", "draft"])
+    p = argparse.ArgumentParser(description="Gmail AI triage / search.")
+    p.add_argument("mode", nargs="?", default="triage",
+                   choices=["triage", "search", "reset"])
     p.add_argument("query", nargs="?", help="search query (mode=search)")
     p.add_argument("--apply", action="store_true")
-    p.add_argument("--yes", action="store_true", help="skip confirmation")
+    p.add_argument("--yes", action="store_true")
+    p.add_argument("--hours", type=float, default=None,
+                   help="triage emails from the last N hours (testing)")
     a = p.parse_args()
     if a.mode == "search":
         search(a.query or "is:unread")
-    elif a.mode == "draft":
-        draft(apply=a.apply, assume_yes=a.yes)
+    elif a.mode == "reset":
+        reset()
     else:
-        sort(apply=a.apply, assume_yes=a.yes)
+        triage(apply=a.apply, assume_yes=a.yes, since_hours=a.hours)

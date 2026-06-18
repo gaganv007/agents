@@ -45,6 +45,27 @@ def save_config(cfg):
         json.dump(cfg, f, indent=2)
 
 
+def get_secret(name, default=None):
+    """Read a secret from the environment, falling back to a local .env file.
+
+    launchd jobs do NOT inherit your shell environment, so secrets needed by the
+    scheduled run must live in ~/Desktop/agents/.env (which is git-ignored).
+    """
+    val = os.environ.get(name)
+    if val:
+        return val
+    env_path = os.path.join(ROOT, ".env")
+    if os.path.exists(env_path):
+        for line in open(env_path):
+            line = line.strip()
+            if not line or line.startswith("#") or "=" not in line:
+                continue
+            k, v = line.split("=", 1)
+            if k.strip() == name:
+                return v.strip().strip('"').strip("'")
+    return default
+
+
 def human_size(n):
     n = float(n)
     for unit in ["B", "KB", "MB", "GB", "TB"]:

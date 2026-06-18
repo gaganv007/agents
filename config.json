@@ -45,26 +45,29 @@
     "top_n": 20
   },
   "gmail_sorter": {
-    "rules": [
-      {"from": "newsletter", "label": "Newsletters", "archive": true},
-      {"from": "noreply", "label": "Notifications", "archive": true},
-      {"subject": "receipt", "label": "Receipts", "archive": false},
-      {"subject": "invoice", "label": "Receipts", "archive": false},
-      {"from": "linkedin.com", "label": "Social", "archive": true},
-      {"from": "github.com", "label": "Dev", "archive": false}
-    ],
-    "max_messages": 100,
-    "draft": {
-      "query": "in:inbox is:unread -from:noreply -from:no-reply -category:promotions -category:social newer_than:7d",
-      "max_drafts": 10,
-      "signature": "Best,\nGagan",
-      "model": "claude-sonnet-4-6",
-      "max_tokens": 600
+    "max_messages": 50,
+    "signature": "Best,\nGagan",
+    "model": "claude-sonnet-4-6",
+    "triage": {
+      "state_file": "gmail_state.json",
+      "categories": {
+        "spam":         {"action": "spam"},
+        "advertising":  {"action": "spam"},
+        "order":        {"action": "label", "label": "Orders", "archive": true},
+        "receipt":      {"action": "label", "label": "Receipts", "archive": false},
+        "newsletter":   {"action": "label", "label": "Newsletters", "archive": true},
+        "social":       {"action": "label", "label": "Social", "archive": true},
+        "notification": {"action": "label", "label": "Notifications", "archive": true},
+        "job":          {"action": "label", "label": "Jobs", "archive": false},
+        "personal":     {"action": "label", "label": "Personal", "archive": false},
+        "other":        {"action": "none"}
+      }
     }
   },
   "automation": {
-    "_comment": "Run daily at 8AM by launchd. Everything here runs unattended EXCEPT junk_cleaner, which stays manual because it deletes data.",
-    "run": ["system", "news", "files", "screenshots", "gmail_sort", "gmail_draft"],
+    "_comment": "launchd runs daily_auto every 30 minutes. Tidies files + AI-triages new Gmail. Junk cleaner is NEVER automated (it deletes data).",
+    "interval_minutes": 30,
+    "run": ["files", "screenshots", "gmail_triage"],
     "never_automate": ["junk_cleaner"]
   }
 }

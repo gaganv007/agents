@@ -4,6 +4,9 @@ token.json
 .env
 *.pem
 
+# Gmail triage state (tracks what's been processed)
+gmail_state.json
+
 # Logs & runtime output
 *.log
 briefing.err.log

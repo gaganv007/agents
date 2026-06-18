@@ -36,7 +36,7 @@ def run(apply=False):
 
     if not found:
         print(f"{C.GRN}No loose screenshots found on Desktop or in Downloads.{C.R}")
-        return
+        return 0
 
     print(f"  Found {C.B}{len(found)}{C.R} screenshots to move into "
           f"{dest_root.replace(os.path.expanduser('~'), '~')}/YYYY-MM/\n")
@@ -47,7 +47,7 @@ def run(apply=False):
 
     if not apply:
         print(f"\n{C.YEL}Preview only. Run with --apply to move them.{C.R}")
-        return
+        return 0
 
     moved = 0
     for p in found:
@@ -70,6 +70,7 @@ def run(apply=False):
         except OSError as e:
             print(f"{C.RED}  could not move {name}: {e}{C.R}")
     print(f"\n{C.GRN}Done. Moved {moved} screenshots.{C.R}")
+    return moved
 
 
 if __name__ == "__main__":

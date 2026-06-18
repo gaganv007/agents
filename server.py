@@ -35,8 +35,7 @@ AGENTS = {
     "files":        (["tools/file_sorter.py"], True, False),
     "screenshots":  (["tools/screenshot_organizer.py"], True, False),
     "junk":         (["tools/junk_cleaner.py"], True, True),
-    "gmail_sort":   (["tools/gmail_sorter.py", "sort"], True, True),
-    "gmail_draft":  (["tools/gmail_sorter.py", "draft"], True, True),
+    "gmail_triage": (["tools/gmail_sorter.py", "triage"], True, True),
     "gmail_search": (["tools/gmail_sorter.py", "search"], False, False),
     "auto":         (["command_center.py", "auto"], False, False),
 }
@@ -104,12 +103,13 @@ def schedule():
         loaded = label in res.stdout
     except Exception:
         pass
+    from common import get_secret
     return jsonify({
         "loaded": loaded,
-        "time": "8:00 AM daily",
+        "time": "every 30 min",
         "gmail_ready": os.path.exists(os.path.join(ROOT, "credentials.json")),
         "gmail_authed": os.path.exists(os.path.join(ROOT, "token.json")),
-        "llm_drafts": bool(os.environ.get("ANTHROPIC_API_KEY")),
+        "llm_drafts": bool(get_secret("ANTHROPIC_API_KEY")),
     })
 
 
