@@ -25,19 +25,30 @@ Or run one agent directly:
 
 (`./cc` is a shortcut for `python3 command_center.py`.)
 
+Or open the **web dashboard** — live system gauges, one-click agents with
+streamed output, a **Reports** tab (browse the auto-generated HTML digests),
+news, and the auto-run log:
+
+```bash
+./dashboard          # http://127.0.0.1:8765  (local only)
+```
+
 ## The agents
 
 | # | Agent | What it does | Changes things? |
 |---|-------|--------------|-----------------|
 | 1 | **Daily Briefing** | System health + news + file status in one shot | No |
 | 2 | **System Analysis** | CPU, memory, disk, battery, top processes, health verdict | No |
-| 3 | **World News** | Top headlines from BBC, NPR, Al Jazeera, Reuters, Hacker News | No |
-| 4 | **File Sorter** | Organizes Downloads into Images/PDFs/Documents/… folders | Yes* |
-| 5 | **Screenshot Organizer** | Moves screenshots into `~/Pictures/Screenshots/YYYY-MM` | Yes* |
-| 6 | **Junk / Cache Cleaner** | Reclaims disk from caches, `node_modules`, `__pycache__` | Yes* (manual only) |
-| 7 | **Disk Analyzer** | Finds your biggest files and folders | No |
-| 8 | **Gmail AI Agent** | AI **triage**: sorts new mail + drafts replies (Claude) | Yes* (your inbox) |
-|   | **Auto Run** | Tidies files + triages Gmail, every 30 min (see below) | Yes |
+| 3 | **Weather** | Current conditions + today's range (auto-located, no key) | No |
+| 4 | **World News** | Top headlines from BBC, NPR, Al Jazeera, Reuters, Hacker News | No |
+| 5 | **Health Check** | Alerts (with cooldown) on low disk / battery / memory | No |
+| 6 | **File Sorter** | Organizes Downloads into Images/PDFs/Documents/… folders | Yes* |
+| 7 | **Screenshot Organizer** | Moves screenshots into `~/Pictures/Screenshots/YYYY-MM` | Yes* |
+| 8 | **Junk / Cache Cleaner** | Reclaims disk from caches, `node_modules`, `__pycache__` | Yes* (manual only) |
+| 9 | **Disk Analyzer** | Finds your biggest files and folders | No |
+| 10 | **Gmail AI Agent** | AI **triage**: sorts new mail + drafts replies (Claude) | Yes* (your inbox) |
+| 11 | **Report** | Writes an HTML digest to `reports/` (auto every run) | No |
+|   | **Auto Run** | Tidies files, triages Gmail, checks health, writes report — every 30 min | Yes |
 
 \* **Safe by default.** Every changing agent runs a **preview first** and asks
 for confirmation when run by hand. From the command line, add `--apply` to make

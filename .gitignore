@@ -7,6 +7,9 @@ token.json
 # Gmail triage state (tracks what's been processed)
 gmail_state.json
 
+# Generated reports & caches
+reports/
+
 # Logs & runtime output
 *.log
 briefing.err.log

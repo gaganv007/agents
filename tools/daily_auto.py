@@ -14,6 +14,8 @@ from common import C, header  # noqa: E402
 import file_sorter
 import screenshot_organizer
 import gmail_sorter
+import health_check
+import report
 from daily_briefing import notify
 
 
@@ -35,10 +37,17 @@ def run():
     shots = step("Screenshot Organizer", lambda: screenshot_organizer.run(apply=True), 0) or 0
     gmail = step("Gmail AI triage",
                  lambda: gmail_sorter.triage(apply=True, assume_yes=True), {}) or {}
+    # Health check fires its own notification (with cooldown) on any breach.
+    step("Health Check", lambda: health_check.run(quiet=True), [])
 
     sorted_n = gmail.get("sorted", 0)
     spam_n = gmail.get("spam", 0)
     drafts = gmail.get("drafts", 0)
+
+    # Always refresh the HTML report so the dashboard stays current.
+    summary = {"files": files, "shots": shots,
+               "emails": sorted_n + spam_n, "spam": spam_n, "drafts": drafts}
+    step("Report", lambda: report.generate(auto_summary=summary), None)
 
     bits = []
     if files:
@@ -53,7 +62,7 @@ def run():
     print(f"\n{C.GRN}  Auto run complete.{C.R} "
           f"{C.GRY}{', '.join(bits) if bits else 'nothing to do'}{C.R}\n")
 
-    # Only ping you when something happened.
+    # Only ping you when file/email activity happened (health pings separately).
     if bits:
         notify("Command Center", "; ".join(bits))
 

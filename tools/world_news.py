@@ -2,6 +2,8 @@
 """World News - pulls top headlines from public RSS feeds (no API key needed)."""
 import os
 import sys
+import json
+import time
 import argparse
 import urllib.request
 import xml.etree.ElementTree as ET
@@ -9,7 +11,7 @@ from html import unescape
 from concurrent.futures import ThreadPoolExecutor
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from common import C, header, load_config  # noqa: E402
+from common import C, header, load_config, ROOT  # noqa: E402
 
 UA = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36"
 
@@ -30,6 +32,30 @@ def fetch(name, url, limit):
         return name, [t for t in titles if t], None
     except Exception as e:
         return name, [], str(e)
+
+
+def get_data(per_feed=None, cache_minutes=0):
+    """Structured news as a list of {source, headlines, error}, with optional cache."""
+    cfg = load_config()
+    feeds = cfg["world_news"]["feeds"]
+    limit = per_feed or cfg["world_news"].get("per_feed", 5)
+    cache = os.path.join(ROOT, "reports", ".news_cache.json")
+    if cache_minutes and os.path.exists(cache):
+        if time.time() - os.path.getmtime(cache) < cache_minutes * 60:
+            try:
+                return json.load(open(cache))
+            except Exception:
+                pass
+    with ThreadPoolExecutor(max_workers=8) as ex:
+        results = list(ex.map(lambda kv: fetch(kv[0], kv[1], limit), feeds.items()))
+    data = [{"source": n, "headlines": t, "error": e} for n, t, e in results]
+    if cache_minutes:
+        os.makedirs(os.path.dirname(cache), exist_ok=True)
+        try:
+            json.dump(data, open(cache, "w"))
+        except Exception:
+            pass
+    return data
 
 
 def run(per_feed=None):

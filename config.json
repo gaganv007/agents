@@ -64,10 +64,25 @@
       }
     }
   },
+  "weather": {
+    "units": "fahrenheit",
+    "location": null
+  },
+  "health": {
+    "disk_pct": 90,
+    "battery_pct": 20,
+    "mem_pct": 90,
+    "notify_cooldown_min": 180
+  },
+  "report": {
+    "dir": "reports",
+    "news_cache_minutes": 180,
+    "keep_days": 30
+  },
   "automation": {
-    "_comment": "launchd runs daily_auto every 30 minutes. Tidies files + AI-triages new Gmail. Junk cleaner is NEVER automated (it deletes data).",
+    "_comment": "launchd runs daily_auto every 30 minutes: tidies files, AI-triages new Gmail, checks health, and regenerates the HTML report. Junk cleaner is NEVER automated (it deletes data).",
     "interval_minutes": 30,
-    "run": ["files", "screenshots", "gmail_triage"],
+    "run": ["files", "screenshots", "gmail_triage", "health", "report"],
     "never_automate": ["junk_cleaner"]
   }
 }

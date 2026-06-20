@@ -29,7 +29,9 @@ app = Flask(__name__, static_folder=os.path.join(ROOT, "web"), static_url_path="
 # key -> (argv after python, supports_apply, needs_yes_on_apply)
 AGENTS = {
     "system":       (["command_center.py", "system"], False, False),
+    "weather":      (["tools/weather.py"], False, False),
     "news":         (["command_center.py", "news"], False, False),
+    "health":       (["tools/health_check.py"], False, False),
     "briefing":     (["command_center.py", "briefing"], False, False),
     "disk":         (["tools/disk_analyzer.py"], False, False),
     "files":        (["tools/file_sorter.py"], True, False),
@@ -37,8 +39,10 @@ AGENTS = {
     "junk":         (["tools/junk_cleaner.py"], True, True),
     "gmail_triage": (["tools/gmail_sorter.py", "triage"], True, True),
     "gmail_search": (["tools/gmail_sorter.py", "search"], False, False),
+    "report":       (["tools/report.py"], False, False),
     "auto":         (["command_center.py", "auto"], False, False),
 }
+REPORTS_DIR = os.path.join(ROOT, "reports")
 
 
 @app.route("/")
@@ -111,6 +115,21 @@ def schedule():
         "gmail_authed": os.path.exists(os.path.join(ROOT, "token.json")),
         "llm_drafts": bool(get_secret("ANTHROPIC_API_KEY")),
     })
+
+
+@app.route("/api/reports")
+def reports_list():
+    items = []
+    if os.path.isdir(REPORTS_DIR):
+        for f in sorted(os.listdir(REPORTS_DIR), reverse=True):
+            if f.endswith(".html"):
+                items.append(f)
+    return jsonify(items)
+
+
+@app.route("/reports/<path:name>")
+def reports_file(name):
+    return send_from_directory(REPORTS_DIR, name)
 
 
 @app.route("/api/log")

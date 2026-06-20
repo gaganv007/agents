@@ -15,11 +15,14 @@ from common import C, confirm  # noqa: E402
 
 import system_analysis
 import world_news
+import weather
 import file_sorter
 import junk_cleaner
 import screenshot_organizer
 import disk_analyzer
 import gmail_sorter
+import health_check
+import report
 import daily_briefing
 import daily_auto
 
@@ -28,15 +31,19 @@ import daily_auto
 AGENTS = {
     "briefing":   ("Daily Briefing",      "System + news + files, all at once",      daily_briefing.run, False),
     "system":     ("System Analysis",     "CPU, memory, disk, battery, top procs",   system_analysis.run, False),
+    "weather":    ("Weather",             "Current conditions for your location",    weather.run,         False),
     "news":       ("World News",          "Top headlines from global sources",       world_news.run,      False),
+    "health":     ("Health Check",        "Alert on low disk / battery / memory",    health_check.run,    False),
     "files":      ("File Sorter",         "Organize Downloads by file type",         file_sorter.run,     True),
     "screenshots":("Screenshot Organizer","Tidy screenshots into dated folders",     screenshot_organizer.run, True),
     "junk":       ("Junk / Cache Cleaner","Reclaim disk from caches & dev junk",      junk_cleaner.run,    True),
     "disk":       ("Disk Analyzer",       "Find your biggest files and folders",     disk_analyzer.run,   False),
-    "gmail":      ("Gmail Agent",         "Search / sort / draft replies (OAuth)",   gmail_sorter.interactive, "gmail"),
-    "auto":       ("Daily Auto Run",      "Everything safe, unattended (no cleaner)",daily_auto.run,      False),
+    "gmail":      ("Gmail AI Agent",      "AI triage / search / draft (OAuth)",      gmail_sorter.interactive, "gmail"),
+    "report":     ("Generate Report",     "Write an HTML digest to reports/",        report.run,          False),
+    "auto":       ("Auto Run (30 min)",   "Everything safe, unattended (no cleaner)",daily_auto.run,      False),
 }
-ORDER = ["briefing", "system", "news", "files", "screenshots", "junk", "disk", "gmail"]
+ORDER = ["briefing", "system", "weather", "news", "health", "files",
+         "screenshots", "junk", "disk", "gmail", "report"]
 
 
 def banner():

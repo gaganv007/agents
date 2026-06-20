@@ -103,7 +103,9 @@
       <p class="gh">Reports</p>
       <button class="agent" onclick="run('briefing')"><span class="em">&#9728;</span>Daily Briefing</button>
       <button class="agent" onclick="run('system')"><span class="em">&#128202;</span>System Analysis</button>
-      <button class="agent" onclick="loadNews()"><span class="em">&#128240;</span>World News</button>
+      <button class="agent" onclick="run('weather')"><span class="em">&#127780;</span>Weather</button>
+      <button class="agent" onclick="run('health')"><span class="em">&#129658;</span>Health Check</button>
+      <button class="agent" onclick="run('news')"><span class="em">&#128240;</span>World News</button>
       <button class="agent" onclick="run('disk')"><span class="em">&#128190;</span>Disk Analyzer</button>
     </div>
     <div class="group">
@@ -130,6 +132,7 @@
   <div class="main">
     <div class="tabs">
       <div class="tab active" data-tab="console" onclick="tab('console')">Console</div>
+      <div class="tab" data-tab="reports" onclick="tab('reports')">Reports</div>
       <div class="tab" data-tab="news" onclick="tab('news')">News</div>
       <div class="tab" data-tab="log" onclick="tab('log')">Auto-run Log</div>
     </div>
@@ -138,6 +141,17 @@
       <div class="toolbar"><span id="status" class="muted">Pick an agent on the left to run it live.</span>
         <span class="stop hidden" id="stopBtn" onclick="stopRun()">stop</span></div>
       <div class="console" id="console"><span class="muted">Ready.</span></div>
+    </div>
+
+    <div id="panel-reports" class="hidden">
+      <div class="card">
+        <div style="display:flex;align-items:center;gap:10px;margin-bottom:10px">
+          <h2 style="margin:0">Saved reports</h2>
+          <select id="reportSel" onchange="showReport()" style="margin-left:auto;background:#0a0e14;color:var(--txt);border:1px solid var(--border);border-radius:8px;padding:6px 10px;font-size:12px"></select>
+          <button class="tab" onclick="run('report')" title="Generate a fresh report now">Regenerate</button>
+        </div>
+        <iframe id="reportFrame" style="width:100%;height:560px;border:1px solid var(--border);border-radius:10px;background:#0d1117"></iframe>
+      </div>
     </div>
 
     <div id="panel-news" class="hidden">
@@ -160,10 +174,23 @@ let es = null;
 /* ---------- tabs ---------- */
 function tab(name){
   document.querySelectorAll('.tab').forEach(t=>t.classList.toggle('active',t.dataset.tab===name));
-  ['console','news','log'].forEach(p=>$('#panel-'+p).classList.toggle('hidden',p!==name));
+  ['console','reports','news','log'].forEach(p=>$('#panel-'+p).classList.toggle('hidden',p!==name));
   if(name==='news') loadNews();
   if(name==='log') loadLog();
+  if(name==='reports') loadReports();
 }
+async function loadReports(){
+  try{
+    const list=await (await fetch('/api/reports')).json();
+    const sel=$('#reportSel'); sel.innerHTML='';
+    if(!list.length){ $('#reportFrame').removeAttribute('src');
+      sel.innerHTML='<option>No reports yet — click Regenerate</option>'; return; }
+    list.forEach(f=>{ const o=document.createElement('option');
+      o.value=f; o.textContent=(f==='latest.html'?'★ Latest':f.replace('report-','').replace('.html','')); sel.appendChild(o); });
+    showReport();
+  }catch(e){}
+}
+function showReport(){ const f=$('#reportSel').value; if(f) $('#reportFrame').src='/reports/'+f+'?t='+Date.now(); }
 
 /* ---------- live stats ---------- */
 function color(pct){ return pct<70?'var(--green)':pct<90?'var(--yellow)':'var(--red)'; }
