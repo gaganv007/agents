@@ -25,3 +25,6 @@ venv/
 
 # Local editor/agent settings
 .claude/settings.local.json
+
+# R history
+.Rhistory

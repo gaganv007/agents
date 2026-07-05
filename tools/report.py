@@ -62,11 +62,26 @@ def _weather():
     if w.get("error"):
         return f"<p class='muted'>Weather unavailable</p>"
     rain = f" · {w['rain']}% rain" if w.get("rain") is not None else ""
-    return (f'<div class="wx"><div class="wxtemp">{w["temp"]}&deg;{w["deg"]}</div>'
+    return (f'<div class="wx"><div class="wxicon">{w.get("icon","")}</div>'
+            f'<div class="wxtemp">{w["temp"]}&deg;{w["deg"]}</div>'
             f'<div><div class="wxdesc">{html.escape(w["desc"])}</div>'
             f'<div class="muted">{html.escape(w["place"])}</div></div></div>'
             f'<div class="kv muted"><span>High {w["hi"]}&deg; / Low {w["lo"]}&deg;{rain}</span>'
             f'<b>feels {w["feels"]}&deg; · wind {w["wind"]}mph</b></div>')
+
+
+def _procs():
+    if psutil is None:
+        return ""
+    procs = []
+    for p in psutil.process_iter(["name", "memory_info"]):
+        try:
+            procs.append((p.info["name"], p.info["memory_info"].rss))
+        except Exception:
+            pass
+    procs.sort(key=lambda x: x[1], reverse=True)
+    return "".join(f'<div class="kv"><span>{html.escape(n or "?")}</span>'
+                   f'<b>{human_size(r)}</b></div>' for n, r in procs[:5])
 
 
 def _health():
@@ -114,7 +129,8 @@ h1{{font-size:20px;margin:0 0 2px}} .sub{{color:#8b949e;margin:0 0 20px}}
 .bar{{height:7px;border-radius:5px;background:#0a0e14;overflow:hidden;margin:4px 0 10px}}
 .bar>i{{display:block;height:100%}}
 .muted{{color:#8b949e}} .alert{{color:#f85149;margin:5px 0}}
-.wx{{display:flex;gap:14px;align-items:center;margin-bottom:8px}}
+.wx{{display:flex;gap:12px;align-items:center;margin-bottom:8px}}
+.wxicon{{font-size:34px}}
 .wxtemp{{font-size:34px;font-weight:700;color:#39d0d8}} .wxdesc{{font-size:15px}}
 .feed{{margin-bottom:14px}} .feed h4{{color:#39d0d8;margin:0 0 6px;font-size:13px}}
 .feed ul{{margin:0;padding:0;list-style:none}} .feed li{{margin:4px 0;color:#c9d3dd;font-size:12.5px}}
@@ -128,6 +144,7 @@ h1{{font-size:20px;margin:0 0 2px}} .sub{{color:#8b949e;margin:0 0 20px}}
 <div class="card"><h3>Weather</h3>{weather}</div>
 <div class="card"><h3>Health</h3>{health}</div>
 <div class="card"><h3>Last Auto Run</h3>{auto}</div>
+<div class="card"><h3>Top Processes</h3>{procs}</div>
 </div>
 <div class="card" style="margin-top:14px"><h3>World News</h3><div class="news">{news}</div></div>
 </body></html>"""
@@ -140,7 +157,7 @@ def generate(auto_summary=None):
     os.makedirs(rdir, exist_ok=True)
     page = PAGE.format(
         date=datetime.datetime.now().strftime("%A, %B %d %Y · %I:%M %p"),
-        system=_system(), weather=_weather(), health=_health(),
+        system=_system(), weather=_weather(), health=_health(), procs=_procs(),
         auto=_auto(auto_summary), news=_news(rcfg.get("news_cache_minutes", 180)))
     latest = os.path.join(rdir, "latest.html")
     dated = os.path.join(rdir, f"report-{datetime.date.today():%Y-%m-%d}.html")

@@ -38,6 +38,17 @@
   .bar > i{display:block;height:100%;width:0;border-radius:6px;transition:width .5s ease,background .3s}
   .gauge .sub{font-size:11px;color:var(--dim);margin-top:7px}
 
+  /* info strip */
+  .inforow{grid-column:1/3;display:grid;grid-template-columns:minmax(240px,1fr) 2fr;gap:14px}
+  .wxcard{display:flex;align-items:center;gap:14px}
+  .wxcard .ic{font-size:38px;line-height:1}
+  .wxcard .t{font-size:26px;font-weight:700;color:var(--accent)}
+  .wxcard .d{font-size:13px} .wxcard .p{font-size:11px;color:var(--dim)}
+  .alertcard{display:flex;flex-direction:column;justify-content:center;gap:6px}
+  .alertcard .ok{color:var(--green);font-size:13px}
+  .alertcard .al{color:var(--red);font-size:13px;display:flex;align-items:center;gap:7px}
+  .alertcard .al:before{content:"⚠";}
+
   /* sidebar */
   .side .group{margin-bottom:16px}
   .side .gh{font-size:11px;color:var(--dim);text-transform:uppercase;letter-spacing:1px;margin:0 0 7px}
@@ -95,6 +106,15 @@
     <div class="card gauge" data-k="mem"><div class="top"><span class="lbl">Memory</span><span class="val">--</span></div><div class="bar"><i></i></div><div class="sub"></div></div>
     <div class="card gauge" data-k="disk"><div class="top"><span class="lbl">Disk</span><span class="val">--</span></div><div class="bar"><i></i></div><div class="sub"></div></div>
     <div class="card gauge" data-k="bat"><div class="top"><span class="lbl">Battery</span><span class="val">--</span></div><div class="bar"><i></i></div><div class="sub"></div></div>
+  </div>
+
+  <!-- weather + alerts -->
+  <div class="inforow">
+    <div class="card wxcard" id="wxcard">
+      <div class="ic" id="wxIc">·</div>
+      <div><div class="t" id="wxTemp">--</div><div class="d" id="wxDesc">Loading weather…</div><div class="p" id="wxPlace"></div></div>
+    </div>
+    <div class="card alertcard" id="alertcard"><span class="ok">Checking system health…</span></div>
   </div>
 
   <!-- sidebar -->
@@ -210,6 +230,24 @@ async function stats(){
     else setGauge('bat',0,'N/A','no battery');
   }catch(e){}
 }
+function ago(ts){ if(!ts)return''; const s=Math.max(0,Date.now()/1000-ts);
+  if(s<90)return'just now'; if(s<3600)return Math.round(s/60)+'m ago'; return Math.round(s/3600)+'h ago'; }
+async function overview(){
+  try{
+    const d=await (await fetch('/api/overview')).json();
+    const w=d.weather||{};
+    if(!w.error){
+      $('#wxIc').textContent=w.icon||'·';
+      $('#wxTemp').textContent=w.temp+'°'+w.deg;
+      $('#wxDesc').textContent=w.desc+'  ·  H'+w.hi+'° L'+w.lo+'°'+(w.rain!=null?' · '+w.rain+'% rain':'');
+      $('#wxPlace').textContent=w.place;
+    } else { $('#wxDesc').textContent='Weather unavailable'; }
+    const ac=$('#alertcard');
+    if(!d.alerts||!d.alerts.length){ ac.innerHTML='<span class="ok">✓ Disk, memory and battery all within limits</span>'; }
+    else { ac.innerHTML=d.alerts.map(a=>'<span class="al">'+a.replace(/</g,'&lt;')+'</span>').join(''); }
+    window._lastReport=d.last_report;
+  }catch(e){}
+}
 async function schedule(){
   try{
     const s=await (await fetch('/api/schedule')).json();
@@ -219,6 +257,7 @@ async function schedule(){
     add(s.gmail_authed?'● Gmail connected':(s.gmail_ready?'◐ Gmail: needs sign-in':'○ Gmail: setup needed'),
         s.gmail_authed?'on':(s.gmail_ready?'warn':'off'));
     add(s.llm_drafts?'● Smart drafts (Claude)':'○ Template drafts', s.llm_drafts?'on':'off');
+    if(window._lastReport) add('◷ report '+ago(window._lastReport), 'on');
   }catch(e){}
 }
 
@@ -290,7 +329,8 @@ async function loadLog(){
 function escapeHtml(s){return s.replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));}
 
 /* ---------- boot ---------- */
-stats(); schedule(); setInterval(stats,3000); setInterval(schedule,15000);
+stats(); overview(); schedule();
+setInterval(stats,3000); setInterval(overview,60000); setInterval(schedule,15000);
 </script>
 </body>
 </html>

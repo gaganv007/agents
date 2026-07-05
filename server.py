@@ -117,6 +117,31 @@ def schedule():
     })
 
 
+_wx_cache = {"t": 0, "data": None}
+
+
+@app.route("/api/overview")
+def overview():
+    """Weather (cached 15 min) + live health alerts + last report time."""
+    global _wx_cache
+    if time.time() - _wx_cache["t"] > 900 or not _wx_cache["data"]:
+        try:
+            import weather as wx
+            _wx_cache = {"t": time.time(), "data": wx.get_data()}
+        except Exception as e:
+            _wx_cache = {"t": time.time(), "data": {"error": str(e)}}
+    try:
+        import health_check
+        alerts = [m for _, m in health_check.check()[0]]
+    except Exception:
+        alerts = []
+    lr = None
+    lp = os.path.join(REPORTS_DIR, "latest.html")
+    if os.path.exists(lp):
+        lr = int(os.path.getmtime(lp))
+    return jsonify({"weather": _wx_cache["data"], "alerts": alerts, "last_report": lr})
+
+
 @app.route("/api/reports")
 def reports_list():
     items = []

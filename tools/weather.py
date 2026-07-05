@@ -24,6 +24,24 @@ WMO = {
 }
 
 
+def icon_for(code):
+    if code == 0:
+        return "☀️"       # sun
+    if code in (1, 2):
+        return "⛅"             # sun behind cloud
+    if code == 3:
+        return "☁️"       # cloud
+    if code in (45, 48):
+        return "\U0001f32b️"   # fog
+    if 51 <= code <= 67 or 80 <= code <= 82:
+        return "\U0001f327️"   # rain
+    if 71 <= code <= 77 or 85 <= code <= 86:
+        return "❄️"       # snow
+    if code >= 95:
+        return "⛈️"       # storm
+    return "\U0001f321️"       # thermometer
+
+
 def _get(url, timeout=12):
     req = urllib.request.Request(url, headers=UA)
     with urllib.request.urlopen(req, timeout=timeout) as r:
@@ -62,13 +80,15 @@ def get_data():
         return {"error": str(e), "place": place}
     cur = d.get("current", {})
     day = d.get("daily", {})
+    code = cur.get("weather_code")
     return {
         "place": place, "deg": deg,
         "temp": round(cur.get("temperature_2m", 0)),
         "feels": round(cur.get("apparent_temperature", 0)),
         "humidity": cur.get("relative_humidity_2m"),
         "wind": round(cur.get("wind_speed_10m", 0)),
-        "desc": WMO.get(cur.get("weather_code"), "—"),
+        "desc": WMO.get(code, "—"),
+        "icon": icon_for(code),
         "hi": round(day.get("temperature_2m_max", [0])[0]),
         "lo": round(day.get("temperature_2m_min", [0])[0]),
         "rain": (day.get("precipitation_probability_max") or [None])[0],
@@ -82,7 +102,7 @@ def run():
         print(f"  {C.RED}Unavailable: {w['error']}{C.R}")
         return
     print(f"  {C.B}{w['place']}{C.R}")
-    print(f"  {C.B}{C.CYN}{w['temp']}°{w['deg']}{C.R}  {w['desc']}   "
+    print(f"  {w['icon']}  {C.B}{C.CYN}{w['temp']}°{w['deg']}{C.R}  {w['desc']}   "
           f"{C.GRY}feels {w['feels']}°{C.R}")
     rain = f", {w['rain']}% rain" if w.get("rain") is not None else ""
     print(f"  {C.GRY}High {w['hi']}° / Low {w['lo']}°{rain}  ·  "
